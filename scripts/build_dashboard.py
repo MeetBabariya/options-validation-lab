@@ -29,6 +29,7 @@ theta, ssvi_p = svi.fit_ssvi(otm)
 sabr_p = cal.fit_sabr(otm)
 bs = cal.fit_bs(otm)
 hp = cal.fit_heston(otm)
+bp = cal.fit_bates(otm, heston_start=hp)
 
 smiles = []
 for exp, s in otm.groupby("expiry"):
@@ -36,6 +37,7 @@ for exp, s in otm.groupby("expiry"):
     kk = np.linspace(s["k"].min() - 0.03, s["k"].max() + 0.03, 60)
     c = kk >= 0
     hv = black.implied_vol(heston.price(np.exp(kk), T, hp, c, N=1024), 1.0, np.exp(kk), T, c)
+    bv = black.implied_vol(heston.bates_price(np.exp(kk), T, bp, c, N=1024), 1.0, np.exp(kk), T, c)
     smiles.append(dict(
         expiry=str(exp.date()), days=round(T * 365, 1), F=round(float(s["F"].iloc[0]), 1),
         k=r(s["k"]), strike=r(s["K"], 0), bid=r(100 * s["bid_iv"], 2), ask=r(100 * s["ask_iv"], 2),
@@ -44,6 +46,7 @@ for exp, s in otm.groupby("expiry"):
             "SSVI": r(100 * np.sqrt(svi.ssvi_w(kk, theta[exp], *ssvi_p) / T), 2),
             "SABR": r(100 * sabr.implied_vol(kk, T, *sabr_p[exp]), 2),
             "Heston": r(100 * hv, 2),
+            "Bates": r(100 * bv, 2),
             "Black-Scholes": r(np.full(len(kk), 100 * bs[exp]), 2)}))
 
 atm = [dict(days=s["days"], expiry=s["expiry"],
@@ -66,6 +69,8 @@ out = dict(
     smiles=smiles, atm=atm,
     scores=params["score"],
     heston_now=dict(zip(cal.HESTON_NAMES, (round(v, 4) for v in hp)), feller=round(cal.feller(hp), 3)),
+    bates_now=dict(zip(cal.BATES_NAMES, (round(v, 4) for v in bp))),
+    decisions=json.loads((REP / "decisions.json").read_text()) if (REP / "decisions.json").exists() else {},
     heston_live_history=live_hist,
     heston_year=dict(day=[d.strftime("%Y-%m-%d") for d in dh.index], kappa=r(dh["h_kappa"], 2), xi=r(dh["h_xi"], 3),
                      rho=r(dh["h_rho"], 3)),

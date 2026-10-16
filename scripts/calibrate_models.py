@@ -1,4 +1,4 @@
-"""Calibrate BS, SVI, SSVI, SABR and Heston to the latest (or a given) snapshot and compare them.
+"""Calibrate BS, SVI, SSVI, SABR, Heston and Bates to the latest (or a given) snapshot and compare them.
 
 Usage: python scripts/calibrate_models.py [BTC|ETH] [path/to/snapshot.csv.gz]
 """
@@ -31,7 +31,9 @@ sabr_p = cal.fit_sabr(otm)
 t1 = time.time()
 hes = cal.fit_heston(otm)
 t2 = time.time()
-print(f"fit times: BS/SVI/SSVI/SABR {t1 - t0:.1f}s, Heston {t2 - t1:.1f}s")
+bat = cal.fit_bates(otm, heston_start=hes)
+t3 = time.time()
+print(f"fit times: BS/SVI/SSVI/SABR {t1 - t0:.1f}s, Heston {t2 - t1:.1f}s, Bates {t3 - t2:.1f}s")
 
 iv = {
     "Black-Scholes": cal.bs_iv(otm, bs),
@@ -39,6 +41,7 @@ iv = {
     "SSVI": np.sqrt(svi.ssvi_w(otm["k"].values, otm["expiry"].map(theta).values, *ssvi_p) / otm["T"].values),
     "SABR": cal.sabr_iv(otm, sabr_p),
     "Heston": cal.heston_iv(otm, hes),
+    "Bates": cal.bates_iv(otm, bat),
 }
 iv = {k: np.asarray(v, float) for k, v in iv.items()}
 sc = cal.score(otm, iv)
@@ -53,6 +56,8 @@ overall = sc.groupby("model").agg(median_rmse_volpts=("rmse_volpts", "median"),
 print("\nOverall\n" + overall.round(3).to_string())
 print("\nHeston: " + ", ".join(f"{n}={v:.3f}" for n, v in zip(cal.HESTON_NAMES, hes))
       + f"  (Feller ratio {cal.feller(hes):.2f}; < 1 means variance can hit zero)")
+print("Bates:  " + ", ".join(f"{n}={v:.3f}" for n, v in zip(cal.BATES_NAMES, bat))
+      + f"  (mean jump {100 * (np.exp(bat[6] + bat[7] ** 2 / 2) - 1):+.1f}%, {bat[5]:.2f} jumps/yr)")
 print("SABR per expiry (alpha, rho, nu):")
 for e, p in sabr_p.items():
     print(f"  {e.date()}  {p[0]:.3f} {p[1]:+.3f} {p[2]:.2f}")
@@ -64,6 +69,7 @@ out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps({
     "snapshot": path.name, "ts": str(q["ts"].max()),
     "heston": dict(zip(cal.HESTON_NAMES, hes)),
+    "bates": dict(zip(cal.BATES_NAMES, bat)),
     "ssvi": dict(zip(("rho", "eta", "gamma"), ssvi_p)),
     "sabr": {str(e.date()): dict(zip(("alpha", "rho", "nu"), p)) for e, p in sabr_p.items()},
     "svi": {str(e.date()): dict(zip(("a", "b", "rho", "m", "sigma"), f.params)) for e, f in svi_fits.items()},
@@ -75,8 +81,8 @@ print("saved", out.relative_to(ROOT))
 # plot: smiles for 4 representative expiries + RMSE by maturity
 exps = sorted(otm["expiry"].unique())
 pick = [exps[i] for i in sorted({0, len(exps) // 3, 2 * len(exps) // 3, len(exps) - 1})]
-colors = {"Black-Scholes": "0.5", "SVI": "C0", "SSVI": "C3", "SABR": "C2", "Heston": "C1"}
-styles = {"Black-Scholes": ":", "SVI": "-", "SSVI": "--", "SABR": "-.", "Heston": "-"}
+colors = {"Black-Scholes": "0.5", "SVI": "C0", "SSVI": "C3", "SABR": "C2", "Heston": "C1", "Bates": "C4"}
+styles = {"Black-Scholes": ":", "SVI": "-", "SSVI": "--", "SABR": "-.", "Heston": "-", "Bates": "--"}
 fig, axes = plt.subplots(1, len(pick) + 1, figsize=(5 * (len(pick) + 1), 4.2))
 for ax, e in zip(axes, pick):
     s = otm[otm["expiry"] == e].sort_values("k")

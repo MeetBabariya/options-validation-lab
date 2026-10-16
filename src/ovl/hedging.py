@@ -13,7 +13,7 @@ import pandas as pd
 
 from . import black, calibrate as cal, heston, sabr, svi
 
-DELTAS = ["BS (sticky strike)", "Sticky moneyness (SVI)", "SABR Bartlett", "Heston", "Min-variance (empirical)"]
+DELTAS = ["BS (sticky strike)", "Sticky moneyness (SVI)", "SABR Bartlett", "Heston", "Bates", "Min-variance (empirical)"]
 
 
 def otm(p: pd.DataFrame) -> pd.DataFrame:
@@ -102,7 +102,7 @@ def mv_delta(df: pd.DataFrame, coef: dict) -> np.ndarray:
 
 # ---------- scoring ----------
 DELTA_COLS = {"BS (sticky strike)": "delta_bs", "Sticky moneyness (SVI)": "delta_sm", "SABR Bartlett": "delta_bartlett",
-              "Heston": "delta_heston", "Min-variance (empirical)": "delta_mv"}
+              "Heston": "delta_heston", "Bates": "delta_bates", "Min-variance (empirical)": "delta_mv"}
 
 
 def gains(df: pd.DataFrame) -> pd.Series:
@@ -130,3 +130,27 @@ def day_block_bootstrap(df: pd.DataFrame, n=500, seed=0) -> pd.DataFrame:
     res = [gains(pd.concat([by_day[d] for d in rng.choice(days, len(days))])) for _ in range(n)]
     res = pd.DataFrame(res)
     return pd.DataFrame({"gain": gains(df), "lo95": res.quantile(0.025), "hi95": res.quantile(0.975)})
+
+
+# ---------- Bates delta (added after the main run; merged into the cached pairs) ----------
+def bates_deltas(p: pd.DataFrame, heston_start=None, min_strikes=6) -> pd.DataFrame:
+    """Same option set as model_deltas. Bates is fitted to the day's marks; delta = dV/dF with parameters fixed.
+    Prices scale with F (V = F c(K/F)), so delta = c(m) - m c'(m) with m = K/F, one vectorised bump per expiry."""
+    o = otm(p)
+    o = o[o.groupby("expiry")["K"].transform("size") >= min_strikes].reset_index(drop=True)
+    if o.empty:
+        return o
+    bp = cal.fit_bates(o, heston_start=heston_start)
+    d = np.empty(len(o))
+    h = 1e-3
+    for exp, g in o.groupby("expiry"):
+        i = g.index.values
+        m, T, c = (g["K"] / g["F"]).values, g["T"].iloc[0], g["is_call"].values
+        up = heston.bates_price(m * (1 + h), T, bp, c, N=1024)
+        dn = heston.bates_price(m * (1 - h), T, bp, c, N=1024)
+        d[i] = heston.bates_price(m, T, bp, c, N=1024) - m * (up - dn) / (2 * m * h)
+    out = o[["instrument_name"]].copy()
+    out["delta_bates"] = d
+    for n, v in zip(cal.BATES_NAMES, bp):
+        out[f"b_{n}"] = v
+    return out

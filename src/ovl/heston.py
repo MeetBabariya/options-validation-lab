@@ -51,3 +51,33 @@ def put_price(K, T, params, F=1.0, N=256, L=12.0):
 def price(K, T, params, is_call, F=1.0, **kw):
     p = put_price(K, T, params, F, **kw)
     return np.where(is_call, p + F - np.asarray(K), p)
+
+
+# ---------- Bates (1996): Heston + Merton lognormal jumps ----------
+# Jumps arrive at rate lam; each multiplies S by exp(J) with J ~ N(muj, sj^2). The drift is compensated so S/F
+# stays a martingale. params = (v0, kappa, theta, xi, rho, lam, muj, sj).
+def bates_charfn(u, T, v0, kappa, theta, xi, rho, lam, muj, sj):
+    kbar = np.exp(muj + 0.5 * sj**2) - 1
+    jump = lam * T * (np.exp(1j * u * muj - 0.5 * sj**2 * u**2) - 1 - 1j * u * kbar)
+    return charfn(u, T, v0, kappa, theta, xi, rho) * np.exp(jump)
+
+
+def bates_put_price(K, T, params, F=1.0, N=1024, L=12.0):
+    v0, kappa, theta, xi, rho, lam, muj, sj = params
+    K = np.atleast_1d(np.asarray(K, float))
+    var = max(v0, theta) * T * (1 + xi) ** 2 + lam * T * (muj**2 + sj**2)  # diffusion + jump variance
+    half = L * np.sqrt(var) + abs(lam * T * muj)
+    a, b = -half, half
+    uk = np.arange(N) * np.pi / (b - a)
+    chi, psi = _chi_psi(uk, a, a, 0.0)
+    Uk = 2 / (b - a) * (-chi + psi)
+    phi = bates_charfn(uk, T, *params)
+    x = np.log(F / K)
+    terms = (phi * Uk)[None, :] * np.exp(1j * np.outer(x - a, uk))
+    terms[:, 0] *= 0.5
+    return np.maximum(K * terms.real.sum(axis=1), 0.0)
+
+
+def bates_price(K, T, params, is_call, F=1.0, **kw):
+    p = bates_put_price(K, T, params, F, **kw)
+    return np.where(is_call, p + F - np.asarray(K), p)

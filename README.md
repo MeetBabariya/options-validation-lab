@@ -47,6 +47,7 @@ validation.
 | SABR (beta = 1) | 3 per expiry | 0.41 | 79% |
 | SSVI | 3 global + ATM curve | 1.12 | 53% |
 | Heston | 5 global | 1.50 | 23% |
+| Bates (Heston + jumps) | 8 global | 0.60 | 56% |
 
 ![models](reports/BTC_models.png)
 
@@ -58,8 +59,12 @@ validation.
    structure. With kappa capped at 30 the fit only moves error from short to long maturities.
 2. **Stable is not the same as correct.** Redrawing every quote inside its bid-ask spread moves the Heston parameters
    by only 1 to 2% (30 refits). The data pins them down tightly, so the misfit is model risk, not estimation noise.
-   Pure diffusion cannot produce steep short-dated crypto smiles; that calls for jumps (Bates) or a per-expiry
-   model.
+   Pure diffusion cannot produce steep short-dated crypto smiles.
+5. **Jumps fix the fit, not the model.** Bates (Heston plus lognormal jumps) cuts the median error from 1.45 to 0.60
+   vol points, but only by pricing a rare, very large crash: about 0.08 jumps a year with a mean jump of -22%. The
+   jump parameters lie on a ridge (|correlation| above 0.9 in the bootstrap); only combinations such as the yearly
+   jump variance are pinned down. The objective also has a second, much worse basin with frequent small jumps, and
+   across the year the daily fit switches between the two. The diffusion part stays implausible (kappa about 180).
 3. **SABR is the practical choice per expiry.** Three parameters fit within the spread for 79% of quotes. Its
    vol-of-vol nu falls with maturity roughly like 1/sqrt(T) (nu * sqrt(T) is about 0.6 to 0.76 from 2 to 343 days).
    Only the correlation rho of the 2 to 3 day expiries is poorly identified (10 to 12% variation in the bootstrap).
@@ -86,6 +91,7 @@ same BTC move. The empirical deltas are fitted only on data before each test mon
 | Black-Scholes (sticky strike) | each option keeps its own IV | 0 | | |
 | Sticky moneyness (SVI) | smile moves with the forward | **-12.4%** | -24.7 to -4.4 | 45% |
 | Heston | stochastic vol, calibrated daily | **-15.1%** | -27.8 to -6.7 | 42% |
+| Bates | Heston plus jumps, calibrated daily | **-15.0%** | -26.5 to -6.7 | 43% |
 | SABR, Bartlett delta | vol-of-vol co-moves with spot | -2.8% | -15.3 to +15.6 | 55% |
 | Min-variance (Hull & White) | regression on past months | -12.2% | -34.6 to +15.1 | 44% |
 | Adaptive spot-vol (30 days) | IV slope re-estimated monthly | **+8.5%** | -0.7 to +15.4 | 46% |
@@ -94,12 +100,12 @@ same BTC move. The empirical deltas are fitted only on data before each test mon
 
 **Findings**
 
-1. **The plain sticky-strike delta is hard to beat on BTC.** Sticky moneyness and Heston are significantly worse.
-   Both assume IV rises when BTC rises (+0.31 and +0.33 vol per 100% move). In fact IV fell, by 0.21 vol per 100%
+1. **The plain sticky-strike delta is hard to beat on BTC.** Sticky moneyness, Heston and Bates are significantly
+   worse; adding jumps does not change the hedge at all. They assume IV rises when BTC rises (+0.31 and +0.33 vol per 100% move). In fact IV fell, by 0.21 vol per 100%
    move over the year.
 2. **The spot-vol relationship flips sign between months,** from a correlation of -0.36 in February to +0.60 in
-   August. Deltas built for a negative correlation (Bartlett, min-variance) win by 25 to 39% when it is negative and
-   lose by 23 to 52% when it turns positive. Sticky moneyness and Heston do the mirror image. No fixed smile model
+   August. Deltas built for a negative correlation (Bartlett, min-variance) gain up to 39% when it is negative and
+   lose up to 52% when it turns positive. Sticky moneyness and Heston do the mirror image. No fixed smile model
    wins consistently.
 3. **Adapting is the only thing that helps overall,** and only a little. Re-estimating the spot-vol slope from the
    last 30 days gives the best result, +8.5%, but its interval touches zero. The median error does not improve and it
@@ -108,7 +114,7 @@ same BTC move. The empirical deltas are fitted only on data before each test mon
 4. **Hedging errors are heavy-tailed.** The worst 1% of option-days make up 45% of the squared error, so any single
    ranking can turn on a handful of crash days. That is why I also report day-level and vega-scaled results
    (`reports/hedging/`).
-5. **Daily Heston calibration is not usable for risk.** The median kappa is 47, and on 15% of days it hits the
+6. **Daily Heston calibration is not usable for risk.** The median kappa is 47, and on 15% of days it hits the
    upper bound of 200. This confirms step 2's finding over a full year.
 
 **Limitations.** Marks are Deribit's model prices, not executable bids and offers. The test uses daily rebalancing
@@ -131,6 +137,7 @@ python scripts/build_surface.py BTC      # snapshot, fit, arbitrage checks, repo
 python scripts/calibrate_models.py BTC   # BS / SVI / SSVI / SABR / Heston on the latest snapshot
 python scripts/fetch_history.py BTC 2025-10-16 2026-10-15   # one year of daily trade windows (cached)
 python scripts/hedge_backtest.py BTC 2025-10-16 2026-10-15  # model deltas and 1-day pairs (8 processes)
+python scripts/add_bates.py BTC                             # Bates fitted on every backtest day (8 processes)
 python scripts/analyze_hedging.py BTC                       # gains, robust views, monthly regimes, chart
 python scripts/build_report.py BTC                          # model-validation report (HTML + PDF)
 python scripts/build_dashboard.py BTC                       # docs/: the live dashboard

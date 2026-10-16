@@ -63,3 +63,15 @@ def test_min_variance_regression_recovers_coefficients():
     fit = hedging.fit_mv(df)
     for c in (True, False):
         assert np.allclose(fit[c], true[c], atol=0.01), (c, fit[c])
+
+
+def test_scaled_delta_formula_matches_direct_bump():
+    # delta = c(m) - m c'(m) with V = F c(K/F) must equal a direct bump of F
+    from ovl import heston
+    p, T, K, F = (0.3, 2.0, 0.4, 1.5, -0.3, 0.5, -0.3, 0.4), 0.1, 105.0, 100.0
+    V = lambda f: heston.bates_price(np.array([K]), T, p, True, F=f)[0]
+    direct = (V(F * 1.0001) - V(F * 0.9999)) / (0.0002 * F)
+    m, h = K / F, 1e-3
+    c = lambda x: heston.bates_price(np.array([x]), T, p, True)[0]
+    scaled = c(m) - m * (c(m * (1 + h)) - c(m * (1 - h))) / (2 * m * h)
+    assert np.isclose(scaled, direct, rtol=1e-5)

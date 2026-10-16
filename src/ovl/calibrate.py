@@ -61,6 +61,8 @@ def sabr_iv(otm, params):
 
 # ---------- Heston: 5 parameters shared by all expiries ----------
 class _HestonProblem:
+    price_fn = staticmethod(lambda K, T, x, c: heston.price(K, T, x, c, N=1024))
+
     def __init__(self, otm: pd.DataFrame, mid_iv=None):
         self.groups = []
         mid_all = otm["mid_iv"].values if mid_iv is None else mid_iv
@@ -74,7 +76,7 @@ class _HestonProblem:
             self.groups.append((K, T, c, p_mid, scale))
 
     def residuals(self, x):
-        return np.concatenate([(heston.price(K, T, x, c, N=1024) - p) / sc for K, T, c, p, sc in self.groups])
+        return np.concatenate([(self.price_fn(K, T, x, c) - p) / sc for K, T, c, p, sc in self.groups])
 
 
 def fit_heston(otm: pd.DataFrame, x0=None, mid_iv=None) -> tuple:
@@ -97,6 +99,45 @@ def heston_iv(otm, params):
         idx = otm.index.get_indexer(s.index)
         K, T, c = np.exp(s["k"].values), s["T"].iloc[0], s["is_call"].values
         iv[idx] = black.implied_vol(heston.price(K, T, params, c, N=1024), 1.0, K, T, c)
+    return iv
+
+
+# ---------- Bates: Heston + lognormal jumps, 8 parameters shared by all expiries ----------
+BATES_NAMES = HESTON_NAMES + ("lam", "muj", "sj")
+# Wide jump bounds on purpose: on BTC the best fit is a rare, very large crash (mean log-jump below -0.6), and the
+# objective has a second, much worse basin with frequent small jumps. Both kinds of start are tried.
+BATES_BOUNDS = (HESTON_BOUNDS[0] + [0.0, -2.0, 0.01], HESTON_BOUNDS[1] + [60.0, 0.5, 2.0])
+
+
+class _BatesProblem(_HestonProblem):
+    price_fn = staticmethod(lambda K, T, x, c: heston.bates_price(K, T, x, c, N=1024))
+
+
+def fit_bates(otm: pd.DataFrame, x0=None, mid_iv=None, heston_start=None) -> tuple:
+    """Starts from the Heston solution plus jump settings from both basins, so the jump part only has to explain what
+    the diffusion cannot, and the optimiser is not trapped in the frequent-small-jump basin."""
+    prob = _BatesProblem(otm, mid_iv)
+    h = tuple(heston_start) if heston_start is not None else fit_heston(otm, mid_iv=mid_iv)
+    h = tuple(np.clip(h, HESTON_BOUNDS[0], HESTON_BOUNDS[1]))
+    atm_var = float(np.median(otm["mid_iv"]) ** 2)
+    starts = [x0] if x0 is not None else [
+        h + (1.0, -0.15, 0.15), h + (8.0, -0.03, 0.08),                   # frequent, small jumps
+        h + (0.1, -0.6, 0.9), h + (0.3, -0.3, 0.5),                         # rare, large crashes
+        (atm_var, 2.0, atm_var, 1.0, -0.2, 4.0, -0.05, 0.1)]
+    best = None
+    for s0 in starts:
+        r = least_squares(prob.residuals, s0, bounds=BATES_BOUNDS, x_scale="jac", max_nfev=2000)
+        if best is None or r.cost < best.cost:
+            best = r
+    return tuple(float(v) for v in best.x)
+
+
+def bates_iv(otm, params):
+    iv = np.empty(len(otm))
+    for exp, s in otm.groupby("expiry", sort=False):
+        idx = otm.index.get_indexer(s.index)
+        K, T, c = np.exp(s["k"].values), s["T"].iloc[0], s["is_call"].values
+        iv[idx] = black.implied_vol(heston.bates_price(K, T, params, c, N=1024), 1.0, K, T, c)
     return iv
 
 

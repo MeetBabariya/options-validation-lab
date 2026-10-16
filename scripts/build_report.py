@@ -55,6 +55,16 @@ params = json.loads(sorted((REP / "params").glob(f"{CCY}_*.json"))[-1].read_text
 score = pd.DataFrame(params["score"]).set_index("model")
 hes, sab = cal.bootstrap(otm, n=20)
 hes_cv = (hes.std() / hes.mean().abs())
+# Bates identifiability: redraw quotes inside bid-ask and refit (10 refits; each fit is ~4x a Heston fit)
+_rng = np.random.default_rng(1)
+_h0 = tuple(hes.mean())
+bat_boot = pd.DataFrame([cal.fit_bates(otm.assign(mid_iv=u), mid_iv=u, heston_start=_h0)
+                         for u in (_rng.uniform(otm["bid_iv"].values, otm["ask_iv"].values) for _ in range(10))],
+                        columns=cal.BATES_NAMES)
+bat_cv = bat_boot.std() / bat_boot.mean().abs()
+bat_boot["mean_jump"] = np.exp(bat_boot["muj"] + bat_boot["sj"] ** 2 / 2) - 1
+bat_boot["jump_var"] = bat_boot["lam"] * (bat_boot["muj"] ** 2 + bat_boot["sj"] ** 2)
+bat_ridge = max(abs(bat_boot["lam"].corr(bat_boot["muj"])), abs(bat_boot["lam"].corr(bat_boot["sj"])))
 tests = run_tests()
 
 gains = pd.read_csv(H / f"{CCY}_gains.csv", index_col=0)
@@ -62,6 +72,8 @@ robust = pd.read_csv(H / f"{CCY}_gains_robust.csv", index_col=0)
 monthly = pd.read_csv(H / f"{CCY}_gains_monthly.csv", index_col=0)
 pairs = pd.read_csv(H / f"{CCY}_pairs.csv.gz", parse_dates=["day"])
 daily_h = pairs.groupby("day")[["h_v0", "h_kappa", "h_theta", "h_xi", "h_rho"]].first()
+has_bates = "delta_bates" in pairs and "Bates" in gains.index
+daily_b = pairs.groupby("day")[[c for c in pairs if c.startswith("b_")]].first() if has_bates else None
 n_hist_days = len(glob.glob(str(ROOT / "data/history" / CCY / "*.csv.gz"))) or pairs["day"].nunique() + 1
 test_pairs = pairs[(pairs["dt_h"] > 20) & (pairs["dt_h"] < 28) & (pairs["day"] >= pd.Timestamp(monthly.index[0] + "-01", tz="UTC"))]
 
@@ -84,6 +96,18 @@ ci = lambda m: f"{100 * gains.loc[m, 'lo95']:+.1f} to {100 * gains.loc[m, 'hi95'
 k_at_bound = (daily_h["h_kappa"] > 199).mean()
 corr = monthly["corr(ret, dIV)"]
 
+def bates_decision():
+    """Rule-based: hedge interval below zero -> not approved; spanning zero -> monitor; above zero -> conditional."""
+    lo, hi = gains.loc["Bates", "lo95"], gains.loc["Bates", "hi95"]
+    decision = "Not approved" if hi < 0 else "Monitor" if lo < 0 else "Approved with conditions"
+    mj = 100 * bat_boot["mean_jump"].mean()
+    return ("Bates (Heston + jumps)", "Pricing and hedging across expiries", decision,
+            f"Median IV error {score.loc['Bates', 'median_rmse_volpts']:.2f} vol pts (Heston {score.loc['Heston', 'median_rmse_volpts']:.2f}). "
+            f"Fits by pricing a rare crash ({bat_boot['lam'].mean():.2f} per year, mean jump {mj:+.0f}%) while kappa stays near "
+            f"{bat_boot['kappa'].mean():.0f}; delta {pct(g['Bates'])} vs BS ({ci('Bates')}).",
+            "Use only as a cross-maturity pricing benchmark; jump parameters are identified only as a combination (F8).")
+
+
 decisions = [
     ("SVI (per expiry)", "Marking and interpolating the daily smile", "Approved with conditions",
      f"Median IV error {score.loc['SVI', 'median_rmse_volpts']:.2f} vol pts, {100 * score.loc['SVI', 'mean_in_spread']:.0f}% of quotes inside bid-ask, "
@@ -99,7 +123,8 @@ decisions = [
     ("Heston (global)", "Pricing and hedging across expiries", "Not approved",
      f"Median IV error {score.loc['Heston', 'median_rmse_volpts']:.2f} vol pts with implausible parameters (kappa at the 200 bound on "
      f"{100 * k_at_bound:.0f}% of days); delta {pct(g['Heston'])} vs BS ({ci('Heston')}).",
-     "Re-validate with jumps (Bates) before any use."),
+     "Do not use; jumps (Bates) improve the fit but not the dynamics, see F8."),
+] + ([bates_decision()] if has_bates else []) + [
     ("Black-Scholes, sticky strike", "Default delta hedge", "Approved",
      "Benchmark that no fixed smile-dynamics delta beats over the year.", "Keep as the production delta; monitor challengers."),
     ("Adaptive spot-vol delta (30 days)", "Challenger hedge", "Monitor",
@@ -112,7 +137,7 @@ findings = [
     ("F1", "High", "Heston", f"Fitting BTC smiles requires implausible dynamics (median kappa {daily_h['h_kappa'].median():.0f}, "
      f"vol of vol {daily_h['h_xi'].median():.1f}) and still misprices short-dated options; parameters are tightly identified "
      f"(bootstrap CV {100 * hes_cv[['kappa', 'xi', 'rho']].max():.0f}% or less), so this is model misspecification, not noise.",
-     "Do not use. Test a jump extension (Bates)."),
+     "Do not use. A jump extension (Bates) was tested, see F8."),
     ("F2", "High", "Smile-dynamics deltas", f"Spot-vol correlation changes sign between months ({corr.min():+.2f} to {corr.max():+.2f}). "
      "Every fixed assumption wins in one regime and loses in the other.", "Keep sticky-strike as default; evaluate regime-adaptive deltas."),
     ("F3", "Medium", "Sticky moneyness, Heston", f"Both imply that IV rises when BTC rises; over the year it fell. Hedging error is "
@@ -125,6 +150,17 @@ findings = [
     ("F6", "Low", "SVI implementation", "Very short expiries produced degenerate fits (negative total variance, extreme deltas) "
      "until optimiser starts were scaled to the slice and total variance was bounded at zero. Fixed and covered by tests.",
      "Keep the regression tests; alert on any |delta| > 1."),
+] + ([("F8", "High", "Bates", f"Adding jumps cuts the median IV error from {score.loc['Heston', 'median_rmse_volpts']:.2f} to "
+     f"{score.loc['Bates', 'median_rmse_volpts']:.2f} vol pts, but only by pricing a rare, very large crash "
+     f"({bat_boot['lam'].mean():.2f} per year, mean jump {100 * bat_boot['mean_jump'].mean():+.0f}%). The jump parameters trade off "
+     f"along a ridge (|correlation| {bat_ridge:.2f} in the bootstrap); only combinations such as the jump variance "
+     f"({bat_boot['jump_var'].mean():.3f} per year, CV {100 * bat_boot['jump_var'].std() / bat_boot['jump_var'].mean():.0f}%) are pinned down. "
+     f"The diffusion stays implausible (kappa {bat_boot['kappa'].mean():.0f}). The objective has a second, much worse basin with "
+     f"frequent small jumps, and over the year the daily fit switches between the two: jump rate below 0.5 per year on "
+     f"{100 * (daily_b['b_lam'] < 0.5).mean():.0f}% of days, at the 60 bound on {100 * (daily_b['b_lam'] > 59.9).mean():.0f}%. "
+     f"Hedge: {pct(g['Bates'])} vs BS ({ci('Bates')}), no better than Heston.",
+     "Not for hedging. Calibrate from several starts in both basins; report jump risk as a combination, not separate parameters.")]
+     if has_bates else []) + [
     ("F7", "Low", "Data", "Backtest uses Deribit marks, not executable quotes, with daily rebalancing and no costs; "
      "only options trading on both days are included.", "Repeat with order-book snapshots when available."),
 ]
@@ -136,6 +172,9 @@ verification = [
     ("Heston reduces to Black-Scholes when vol of vol is zero", "test_heston_with_zero_volvol_is_black_scholes"),
     ("Calibration recovers known Heston parameters (synthetic data)", "test_heston_calibration_recovers_known_parameters"),
     ("Calibration recovers known SABR parameters (synthetic data)", "test_sabr_calibration_recovers_known_parameters"),
+    ("Bates with constant variance matches an independent Merton jump-diffusion series", "test_bates_with_constant_variance_matches_merton_series"),
+    ("Bates without jumps equals Heston; characteristic function is a martingale", "test_bates_without_jumps_is_heston"),
+    ("Calibration recovers known Bates parameters (synthetic data)", "test_bates_calibration_recovers_known_parameters"),
     ("Durrleman check flags the known arbitrage slice (Gatheral & Jacquier 2014)", "test_durrleman_flags_known_butterfly_arbitrage"),
     ("Sticky-moneyness delta equals total derivative", "test_sticky_moneyness_delta_is_total_derivative"),
     ("Bartlett delta equals derivative with alpha following the forward", "test_bartlett_delta_is_derivative_with_alpha_following_the_forward"),
@@ -199,8 +238,8 @@ body = f"""
 &middot; Code and data: <a href="https://github.com/MeetBabariya/options-validation-lab">github.com/MeetBabariya/options-validation-lab</a></div>
 
 <h2>1. Executive summary</h2>
-<div class="summary">Six models were validated for marking and hedging {CCY} options: SVI, SSVI, SABR, Heston, Black-Scholes and an
-adaptive challenger delta. <b>SVI and SABR are fit for marking</b>: they price
+<div class="summary">Seven models were validated for marking and hedging {CCY} options: SVI, SSVI, SABR, Heston, Bates, Black-Scholes
+and an adaptive challenger delta. <b>SVI and SABR are fit for marking</b>: they price
 {100 * score.loc['SVI', 'mean_in_spread']:.0f}% and {100 * score.loc['SABR', 'mean_in_spread']:.0f}% of quotes inside the bid-ask spread.
 <b>Heston is not approved</b>: it needs implausible dynamics, misprices short-dated options and hedges worse than Black-Scholes.
 For hedging, <b>no fixed smile-dynamics assumption beats the plain sticky-strike delta</b> over a year, because the
@@ -235,6 +274,7 @@ live forwards, the error is below 0.5 bp of the forward.</p>
     ("SSVI", "Global surface, arbitrage-free under Gatheral-Jacquier conditions", "One skew parameter for all maturities"),
     ("SABR (beta = 1)", "Lognormal forward with stochastic vol per expiry", "Hagan expansion; per-expiry parameters"),
     ("Heston", "Mean-reverting stochastic variance, no jumps", "Cannot produce steep short-dated smiles without jumps"),
+    ("Bates", "Heston plus lognormal jumps (Merton)", "Eight parameters; jump size, frequency and dispersion trade off"),
     ("BS sticky strike", "Each option keeps its own IV when spot moves", "Ignores spot-vol co-movement"),
 ])}
 
@@ -258,7 +298,10 @@ Empirical deltas are fitted only on earlier months. Intervals: bootstrap over wh
 <p><b>Within a day:</b> quotes redrawn uniformly inside their bid-ask spreads and Heston refitted 20 times. Parameters
 move by at most {100 * hes_cv.max():.1f}%: the data pins them down, so the misfit is not estimation noise.</p>
 {table(["Heston parameter", "Mean", "Std", "Coefficient of variation"], ident_rows)}
-<p><b>Across days:</b> over the backtest year, kappa reached its upper bound on {100 * k_at_bound:.0f}% of days.</p>
+<p><b>Bates, 10 refits:</b> the jump parameters move more and are almost perfectly correlated with each other
+(|correlation| {bat_ridge:.2f}); the combined jump variance is far more stable than its parts.</p>
+{table(["Bates parameter", "Mean", "Std", "Coefficient of variation"], [(n, f"{bat_boot[n].mean():.3f}", f"{bat_boot[n].std():.3f}", f"{100 * bat_cv[n]:.1f}%") for n in cal.BATES_NAMES] + [("jump variance per year", f"{bat_boot['jump_var'].mean():.3f}", f"{bat_boot['jump_var'].std():.3f}", f"{100 * bat_boot['jump_var'].std() / bat_boot['jump_var'].mean():.1f}%")])}
+<p><b>Across days:</b> over the backtest year, Heston's kappa reached its upper bound on {100 * k_at_bound:.0f}% of days.</p>
 <img src="{CCY}_heston_history.png" alt="Heston parameter history">
 
 <h2>9. Findings register</h2>
@@ -269,6 +312,10 @@ move by at most {100 * hes_cv.max():.1f}%: the data pins them down, so the misfi
 are measured at each instrument's last trade in the window, and only options that trade on both days are included,
 which favours liquid strikes. Results cover {CCY} only.</p>
 """
+
+short = {"SVI (per expiry)": "SVI", "SSVI (global)": "SSVI", "SABR, beta = 1 (per expiry)": "SABR", "Heston (global)": "Heston",
+         "Bates (Heston + jumps)": "Bates", "Black-Scholes, sticky strike": "Black-Scholes"}
+(REP / "decisions.json").write_text(json.dumps({short[m]: d for m, _, d, _, _ in decisions if m in short}, indent=1))
 
 out = REP / "validation_report.html"
 out.write_text(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'

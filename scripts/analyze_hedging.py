@@ -95,7 +95,8 @@ bucket.to_csv(out / f"{CCY}_gains_by_bucket.csv", index=False)
 
 # chart
 models = [m for m in cols if m != "BS (sticky strike)"]
-colors = dict(zip(models, ["C0", "C2", "C1", "C4", "C3"]))
+colors = {"Sticky moneyness (SVI)": "C0", "SABR Bartlett": "C2", "Heston": "C1", "Bates": "C5",
+          "Min-variance (empirical)": "C4", "Adaptive spot-vol (30d)": "C3"}
 fig, axes = plt.subplots(1, 3, figsize=(19, 4.8), gridspec_kw={"width_ratios": [1.1, 1.3, 1]})
 b = boot.loc[models]
 axes[0].barh(models, 100 * b["gain"], xerr=[100 * (b["gain"] - b["lo95"]), 100 * (b["hi95"] - b["gain"])],

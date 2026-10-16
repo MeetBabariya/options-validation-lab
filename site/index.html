@@ -13,14 +13,14 @@
 :root{
   --bg:#f6f7f9;--panel:#ffffff;--ink:#0d1117;--mut:#5b6472;--line:#e3e6eb;--acc:#2f5bea;--acc2:#0f9d76;--warn:#c27c0e;--bad:#d1453b;
   --chip:#eef1f6;--shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.04);
-  --m-svi:#2f5bea;--m-ssvi:#d1453b;--m-sabr:#0f9d76;--m-heston:#e38b12;--m-bs:#8a94a6;
+  --m-svi:#2f5bea;--m-ssvi:#d1453b;--m-sabr:#0f9d76;--m-heston:#e38b12;--m-bates:#8e44c9;--m-bs:#8a94a6;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0b0e14;--panel:#121722;--ink:#e6e9ef;--mut:#8b95a7;--line:#222a38;--acc:#6f8cff;--acc2:#3ccf9f;--warn:#f0b04a;--bad:#ff6b61;
-  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bs:#7d879a;}}
+  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bates:#c18cff;--m-bs:#7d879a;}}
 :root[data-theme="dark"]{
   --bg:#0b0e14;--panel:#121722;--ink:#e6e9ef;--mut:#8b95a7;--line:#222a38;--acc:#6f8cff;--acc2:#3ccf9f;--warn:#f0b04a;--bad:#ff6b61;
-  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bs:#7d879a;}
+  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bates:#c18cff;--m-bs:#7d879a;}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
@@ -157,9 +157,8 @@ footer{color:var(--mut);font-size:12.5px;margin-top:28px;line-height:1.6}
 </div>
 
 <script>
-const MODELS=[["SVI","--m-svi"],["SSVI","--m-ssvi"],["SABR","--m-sabr"],["Heston","--m-heston"],["Black-Scholes","--m-bs"]];
-const VERDICT={"SVI":["Approved with conditions","cond"],"SSVI":["Approved with conditions","cond"],"SABR":["Approved for marking","ok"],
-  "Heston":["Not approved","no"],"Black-Scholes":["Approved as hedge","ok"]};
+const MODELS=[["SVI","--m-svi"],["SSVI","--m-ssvi"],["SABR","--m-sabr"],["Heston","--m-heston"],["Bates","--m-bates"],["Black-Scholes","--m-bs"]];
+const BADGE=d=>d.startsWith("Not")?"no":d.startsWith("Monitor")?"mon":d.includes("condition")?"cond":"ok";
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const hidden=new Set();let D,cur=0;
 
@@ -220,7 +219,7 @@ function smile(){
 }
 
 function score(){
-  const rows=D.scores.map(s=>{const [v,c]=VERDICT[s.model]||["",""];
+  const rows=D.scores.map(s=>{const v=(D.decisions||{})[s.model]||"",c=BADGE(v);
     return `<tr><td>${s.model}</td><td class="num">${s.median_rmse_volpts.toFixed(2)}</td>
     <td class="hide-sm"><div class="bar"><i style="width:${100*s.mean_in_spread}%"></i></div></td><td class="num">${Math.round(100*s.mean_in_spread)}%</td>
     <td><span class="badge ${c}">${v}</span></td></tr>`}).join("");
@@ -235,7 +234,7 @@ function term(){
 }
 
 function hedge(){
-  const h=D.hedging,cols={"Sticky moneyness (SVI)":"--m-svi","SABR Bartlett":"--m-sabr","Heston":"--m-heston","Min-variance (empirical)":"--m-bs","Adaptive spot-vol (30d)":"--m-ssvi"};
+  const h=D.hedging,cols={"Sticky moneyness (SVI)":"--m-svi","SABR Bartlett":"--m-sabr","Heston":"--m-heston","Bates":"--m-bates","Min-variance (empirical)":"--m-bs","Adaptive spot-vol (30d)":"--m-ssvi"};
   Plotly.react("gains",[{y:h.models,x:h.gain,type:"bar",orientation:"h",marker:{color:h.models.map(m=>css(cols[m]))},
     error_x:{type:"data",symmetric:false,array:h.hi.map((v,i)=>v-h.gain[i]),arrayminus:h.gain.map((v,i)=>v-h.lo[i]),color:css("--ink"),thickness:1.2,width:4},
     hovertemplate:"%{y}<br>%{x:+.1f}%<extra></extra>"}],

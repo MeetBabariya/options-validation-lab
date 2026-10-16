@@ -1,0 +1,8 @@
+{
+ "SVI": "Approved with conditions",
+ "SSVI": "Approved with conditions",
+ "SABR": "Approved for marking; hedge not approved",
+ "Heston": "Not approved",
+ "Bates": "Not approved",
+ "Black-Scholes": "Approved"
+}

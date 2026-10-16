@@ -93,3 +93,44 @@ def test_sabr_calibration_recovers_known_parameters():
     for e, p in fit.items():
         days = (e - __import__("pandas").Timestamp("2027-01-01")).days
         assert np.allclose(p, true[days], rtol=0.01, atol=1e-3), (days, p)
+
+
+# ---------- Bates ----------
+def test_bates_without_jumps_is_heston():
+    K = np.exp(np.linspace(-0.4, 0.4, 9))
+    p = (0.36, 3.0, 0.49, 1.8, -0.35)
+    for T in (0.02, 0.3, 1.0):
+        assert np.allclose(heston.bates_price(K, T, p + (0.0, -0.1, 0.2), True), heston.price(K, T, p, True, N=1024), atol=1e-9)
+
+
+def test_bates_charfn_is_martingale():
+    # E[S_T / F] = phi(-i) = 1 for any parameters
+    phi = heston.bates_charfn(np.array([-1j]), 0.5, 0.3, 2.0, 0.4, 1.5, -0.4, 8.0, -0.08, 0.15)
+    assert np.isclose(phi[0], 1.0, atol=1e-12)
+
+
+def test_bates_with_constant_variance_matches_merton_series():
+    # xi -> 0, v0 = theta: Bates is Merton (1976) jump-diffusion, priced independently as a Poisson-weighted BS sum
+    from math import factorial
+    sig, lam, muj, sj, T = 0.5, 6.0, -0.1, 0.2, 0.25
+    K = np.exp(np.linspace(-0.4, 0.3, 8))
+    kbar = np.exp(muj + 0.5 * sj**2) - 1
+    merton = np.zeros_like(K)
+    for n in range(60):
+        w = np.exp(-lam * T) * (lam * T) ** n / factorial(n)
+        Fn = np.exp(n * (muj + 0.5 * sj**2) - lam * kbar * T)  # forward conditional on n jumps
+        vn = np.sqrt(sig**2 + n * sj**2 / T)
+        merton += w * black.price(Fn, K, T, vn, True)
+    bates = heston.bates_price(K, T, (sig**2, 1.0, sig**2, 1e-5, 0.0, lam, muj, sj), True)
+    assert np.max(np.abs(bates - merton)) < 1e-6
+
+
+def test_bates_calibration_recovers_known_parameters():
+    from ovl import calibrate as cal
+    true = (0.3, 2.5, 0.4, 1.2, -0.3, 6.0, -0.08, 0.12)
+    otm = _synthetic_chain(lambda k, T: black.implied_vol(
+        heston.bates_price(np.array([np.exp(k)]), T, true, k >= 0)[0], 1.0, np.exp(k), T, k >= 0))
+    fit = cal.fit_bates(otm)
+    iv_fit = cal.bates_iv(otm, fit)
+    assert np.max(np.abs(iv_fit - otm["mid_iv"].values)) < 1e-3  # prices recovered to 0.1 vol pt
+    assert np.allclose(fit[5:], true[5:], rtol=0.15, atol=0.02), fit  # jump parameters close (they trade off)
