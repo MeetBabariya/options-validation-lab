@@ -1,0 +1,93 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BTC Model Validation Report</title><style>
+:root{--ink:#111;--mut:#555;--line:#d9d9d9;--acc:#0b3d91;--bg:#fff}
+@page{size:A4;margin:16mm 15mm}
+*{box-sizing:border-box}
+body{font:10.2pt/1.5 "Helvetica Neue",Arial,sans-serif;color:var(--ink);background:var(--bg);max-width:980px;margin:0 auto;padding:28px}
+h1{font-size:21pt;margin:0 0 4px;letter-spacing:-.2px}
+h2{font-size:13pt;color:var(--acc);border-bottom:1.5px solid var(--acc);padding-bottom:3px;margin:26px 0 10px;break-after:avoid}
+h3{font-size:10.6pt;margin:16px 0 6px}
+.meta{color:var(--mut);font-size:9.2pt;margin-bottom:14px}
+.meta b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin:8px 0 12px;font-size:9.2pt}
+tr{break-inside:avoid}
+thead{display:table-header-group}
+th{background:#f2f4f8;text-align:left;font-weight:600;padding:6px 7px;border-bottom:1.5px solid #c8cdd8}
+td{padding:6px 7px;border-bottom:1px solid var(--line);vertical-align:top}
+img{width:100%;border:1px solid var(--line);margin:6px 0 4px;break-inside:avoid}
+.cap{color:var(--mut);font-size:8.8pt;margin-bottom:10px}
+.badge,.sev{display:inline-block;padding:1px 7px;border-radius:9px;font-size:8.4pt;font-weight:600}
+.approved{background:#e3f4e8;color:#13652f}.not{background:#fde4e4;color:#9b1c1c}.monitor{background:#fff3d6;color:#8a5a00}
+.high{background:#fde4e4;color:#9b1c1c}.medium{background:#fff3d6;color:#8a5a00}.low{background:#e8eef9;color:#28467f}
+.pass{color:#13652f;font-weight:600}.fail{color:#9b1c1c;font-weight:600}
+.summary{background:#f7f9fc;border-left:3px solid var(--acc);padding:10px 14px;margin:10px 0}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
+.kpi{border:1px solid var(--line);border-radius:6px;padding:8px 10px}.kpi b{display:block;font-size:15pt}
+.kpi span{color:var(--mut);font-size:8.6pt}
+a{color:var(--acc)}
+@media (max-width:640px){body{padding:14px}.kpis{grid-template-columns:1fr 1fr}table{font-size:8.4pt}}
+</style></head><body>
+<h1>Model Validation Report: BTC Option Models on Deribit</h1>
+<div class="meta">Independent validation &middot; Author: <b>Meet Babariya</b> &middot; Generated automatically 16 Oct 2026, 15:16 UTC
+&middot; Code and data: <a href="https://github.com/MeetBabariya/options-validation-lab">github.com/MeetBabariya/options-validation-lab</a></div>
+
+<h2>1. Executive summary</h2>
+<div class="summary">Six models were validated for marking and hedging BTC options: SVI, SSVI, SABR, Heston, Black-Scholes and an
+adaptive challenger delta. <b>SVI and SABR are fit for marking</b>: they price
+99% and 84% of quotes inside the bid-ask spread.
+<b>Heston is not approved</b>: it needs implausible dynamics, misprices short-dated options and hedges worse than Black-Scholes.
+For hedging, <b>no fixed smile-dynamics assumption beats the plain sticky-strike delta</b> over a year, because the
+spot-volatility correlation changes sign between months (-0.36 to +0.60).</div>
+<div class="kpis">
+<div class="kpi"><b>0.13</b><span>SVI median IV error, vol pts</span></div>
+<div class="kpi"><b>18/18</b><span>implementation tests passing</span></div>
+<div class="kpi"><b>18,555</b><span>out-of-sample option-days hedged</span></div>
+<div class="kpi"><b>-15.1%</b><span>Heston hedge vs Black-Scholes</span></div>
+</div>
+<table class=""><colgroup><col style="width:14%"><col style="width:14%"><col style="width:15%"><col style="width:31%"><col style="width:26%"></colgroup><thead><tr><th>Model</th><th>Intended use</th><th>Decision</th><th>Evidence</th><th>Conditions</th></tr></thead><tbody><tr><td>SVI (per expiry)</td><td>Marking and interpolating the daily smile</td><td><span class="badge approved">Approved with conditions</span></td><td>Median IV error 0.13 vol pts, 99% of quotes inside bid-ask, 0 butterfly and 0 calendar violations on the latest surface.</td><td>Run the arbitrage checks on every fit; do not use the fitted smile as a model of smile dynamics (sticky-moneyness delta loses 12% vs BS).</td></tr><tr><td>SSVI (global)</td><td>Arbitrage-free benchmark and extrapolation</td><td><span class="badge approved">Approved with conditions</span></td><td>Arbitrage-free by construction; median IV error 1.11 vol pts.</td><td>Not for marking short-dated options: one skew parameter misses the short-dated put skew.</td></tr><tr><td>SABR, beta = 1 (per expiry)</td><td>Marking; delta with Bartlett correction</td><td><span class="badge approved">Approved for marking; hedge not approved</span></td><td>Median IV error 0.37 vol pts. Bartlett delta -2.8% vs BS (-15.3 to +15.6%).</td><td>Bartlett delta wins only when spot-vol correlation is negative; do not use as the default hedge.</td></tr><tr><td>Heston (global)</td><td>Pricing and hedging across expiries</td><td><span class="badge not">Not approved</span></td><td>Median IV error 1.54 vol pts with implausible parameters (kappa at the 200 bound on 15% of days); delta -15.1% vs BS (-27.8 to -6.7%).</td><td>Re-validate with jumps (Bates) before any use.</td></tr><tr><td>Black-Scholes, sticky strike</td><td>Default delta hedge</td><td><span class="badge approved">Approved</span></td><td>Benchmark that no fixed smile-dynamics delta beats over the year.</td><td>Keep as the production delta; monitor challengers.</td></tr><tr><td>Adaptive spot-vol delta (30 days)</td><td>Challenger hedge</td><td><span class="badge monitor">Monitor</span></td><td>+8.5% vs BS (-0.7 to +15.4%); beats BS on only 46% of days.</td><td>Track for another 6 months; promote only if the interval excludes zero.</td></tr></tbody></table>
+
+<h2>2. Scope and intended use</h2>
+<p>The models are assessed for two uses: <b>marking</b> (producing an implied-volatility surface consistent with the market and
+free of static arbitrage) and <b>hedging</b> (producing a delta that minimises the one-day hedging error). Out of scope:
+exotic pricing, vega hedging, transaction costs and capital.</p>
+
+<h2>3. Data</h2>
+<table class=""><thead><tr><th>Dataset</th><th>Source</th><th>Size</th><th>Use</th></tr></thead><tbody><tr><td>Live option chains</td><td>Deribit public API (no key), snapshot daily at 08:00 UTC</td><td>latest: 878 options, 11 expiries</td><td>Fit, arbitrage, identifiability</td></tr><tr><td>Historical chain states</td><td>Rebuilt from Deribit trade history: marks, trade IV, index</td><td>365 daily windows (07:00 to 09:00 UTC)</td><td>Hedging backtest, parameter history</td></tr><tr><td>Hedging pairs</td><td>Same option observed on consecutive days</td><td>24,329 pairs, 18,555 in the out-of-sample test</td><td>Outcome analysis</td></tr></tbody></table>
+<p><b>Cleaning.</b> Only out-of-the-money options with a two-sided market and |delta| of at least 5% are used; deep-wing
+quotes are mostly tick rounding. <b>Forward.</b> Deribit prices options in coin on the forward of each expiry. The
+historical forward is recovered from each trade's price and Deribit's IV (one equation, unique root). Checked against
+live forwards, the error is below 0.5 bp of the forward.</p>
+
+<h2>4. Conceptual soundness</h2>
+<table class=""><thead><tr><th>Model</th><th>Key assumption</th><th>Known weakness</th></tr></thead><tbody><tr><td>SVI</td><td>Smile per expiry; Lee moment bound; Durrleman butterfly condition checked</td><td>Static: says nothing about how the smile moves</td></tr><tr><td>SSVI</td><td>Global surface, arbitrage-free under Gatheral-Jacquier conditions</td><td>One skew parameter for all maturities</td></tr><tr><td>SABR (beta = 1)</td><td>Lognormal forward with stochastic vol per expiry</td><td>Hagan expansion; per-expiry parameters</td></tr><tr><td>Heston</td><td>Mean-reverting stochastic variance, no jumps</td><td>Cannot produce steep short-dated smiles without jumps</td></tr><tr><td>BS sticky strike</td><td>Each option keeps its own IV when spot moves</td><td>Ignores spot-vol co-movement</td></tr></tbody></table>
+
+<h2>5. Implementation verification</h2>
+<p>18 of 18 automated tests pass in this run. Key checks against independent references:</p>
+<table class=""><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody><tr><td>Heston COS price vs published Fang & Oosterlee (2008) value 5.785155450</td><td><span class="pass">pass</span></td></tr><tr><td>Heston COS vs independent numerical integration (2 to 365 days)</td><td><span class="pass">pass</span></td></tr><tr><td>Heston reduces to Black-Scholes when vol of vol is zero</td><td><span class="pass">pass</span></td></tr><tr><td>Calibration recovers known Heston parameters (synthetic data)</td><td><span class="pass">pass</span></td></tr><tr><td>Calibration recovers known SABR parameters (synthetic data)</td><td><span class="pass">pass</span></td></tr><tr><td>Durrleman check flags the known arbitrage slice (Gatheral & Jacquier 2014)</td><td><span class="pass">pass</span></td></tr><tr><td>Sticky-moneyness delta equals total derivative</td><td><span class="pass">pass</span></td></tr><tr><td>Bartlett delta equals derivative with alpha following the forward</td><td><span class="pass">pass</span></td></tr><tr><td>Forward inference round-trip on Deribit coin prices</td><td><span class="pass">pass</span></td></tr><tr><td>Min-variance regression recovers known coefficients</td><td><span class="pass">pass</span></td></tr></tbody></table>
+
+<h2>6. Outcome analysis: fit to the market</h2>
+<p>Latest snapshot BTC_20261016T1400Z.csv.gz: 285 usable quotes from 2 to 343 days.
+SVI shows 0 butterfly and 0 calendar arbitrage violations.</p>
+<table class=""><thead><tr><th>Model</th><th>Median IV error (vol pts)</th><th>Quotes inside bid-ask</th></tr></thead><tbody><tr><td>Black-Scholes</td><td>3.37</td><td>11%</td></tr><tr><td>SVI</td><td>0.13</td><td>99%</td></tr><tr><td>SSVI</td><td>1.11</td><td>55%</td></tr><tr><td>SABR</td><td>0.37</td><td>84%</td></tr><tr><td>Heston</td><td>1.54</td><td>29%</td></tr></tbody></table>
+<img src="BTC_models.png" alt="model fits"><div class="cap">Market bid-ask (grey) against each model for four expiries, and fit error by maturity.</div>
+
+<h2>7. Outcome analysis: hedging</h2>
+<p>One-day delta hedges for every out-of-the-money option observed on consecutive days. Gain = 1 - SSE(model) / SSE(BS).
+Empirical deltas are fitted only on earlier months. Intervals: bootstrap over whole days.</p>
+<table class=""><thead><tr><th>Delta</th><th>Gain vs BS</th><th>95% interval</th><th>Gain, vega-scaled</th><th>Days beating BS</th></tr></thead><tbody><tr><td>BS (sticky strike)</td><td>benchmark</td><td></td><td></td><td></td></tr><tr><td>Sticky moneyness (SVI)</td><td>-12.4%</td><td>-24.7 to -4.4%</td><td>-8.5%</td><td>45%</td></tr><tr><td>SABR Bartlett</td><td>-2.8%</td><td>-15.3 to +15.6%</td><td>-2.0%</td><td>55%</td></tr><tr><td>Heston</td><td>-15.1%</td><td>-27.8 to -6.7%</td><td>-10.2%</td><td>42%</td></tr><tr><td>Min-variance (empirical)</td><td>-12.2%</td><td>-34.6 to +15.1%</td><td>-5.9%</td><td>44%</td></tr><tr><td>Adaptive spot-vol (30d)</td><td>+8.5%</td><td>-0.7 to +15.4%</td><td>+5.2%</td><td>46%</td></tr></tbody></table>
+<img src="BTC_hedging.png" alt="hedging results"><div class="cap">Gains with intervals, gains by month, and spot-vol correlation by month.</div>
+
+<h2>8. Stability and identifiability</h2>
+<p><b>Within a day:</b> quotes redrawn uniformly inside their bid-ask spreads and Heston refitted 20 times. Parameters
+move by at most 1.9%: the data pins them down, so the misfit is not estimation noise.</p>
+<table class=""><thead><tr><th>Heston parameter</th><th>Mean</th><th>Std</th><th>Coefficient of variation</th></tr></thead><tbody><tr><td>v0</td><td>0.043</td><td>0.001</td><td>1.9%</td></tr><tr><td>kappa</td><td>67.159</td><td>1.014</td><td>1.5%</td></tr><tr><td>theta</td><td>0.169</td><td>0.000</td><td>0.1%</td></tr><tr><td>xi</td><td>9.312</td><td>0.138</td><td>1.5%</td></tr><tr><td>rho</td><td>-0.232</td><td>0.002</td><td>1.0%</td></tr></tbody></table>
+<p><b>Across days:</b> over the backtest year, kappa reached its upper bound on 15% of days.</p>
+<img src="BTC_heston_history.png" alt="Heston parameter history">
+
+<h2>9. Findings register</h2>
+<table class=""><colgroup><col style="width:5%"><col style="width:9%"><col style="width:14%"><col style="width:45%"><col style="width:27%"></colgroup><thead><tr><th>ID</th><th>Severity</th><th>Area</th><th>Finding</th><th>Recommendation</th></tr></thead><tbody><tr><td>F1</td><td><span class="sev high">High</span></td><td>Heston</td><td>Fitting BTC smiles requires implausible dynamics (median kappa 47, vol of vol 8.0) and still misprices short-dated options; parameters are tightly identified (bootstrap CV 2% or less), so this is model misspecification, not noise.</td><td>Do not use. Test a jump extension (Bates).</td></tr><tr><td>F2</td><td><span class="sev high">High</span></td><td>Smile-dynamics deltas</td><td>Spot-vol correlation changes sign between months (-0.36 to +0.60). Every fixed assumption wins in one regime and loses in the other.</td><td>Keep sticky-strike as default; evaluate regime-adaptive deltas.</td></tr><tr><td>F3</td><td><span class="sev medium">Medium</span></td><td>Sticky moneyness, Heston</td><td>Both imply that IV rises when BTC rises; over the year it fell. Hedging error is 12% and 15% worse than BS, intervals exclude zero.</td><td>Do not use sticky-moneyness deltas for BTC.</td></tr><tr><td>F4</td><td><span class="sev medium">Medium</span></td><td>All hedges</td><td>Hedging errors are heavy-tailed: the worst 1% of option-days carry about 45% of the squared error.</td><td>Report robust metrics alongside SSE; stress-test on large-move days.</td></tr><tr><td>F5</td><td><span class="sev medium">Medium</span></td><td>SSVI</td><td>One global skew parameter cannot match the short-dated BTC put skew (1 to 2 vol pts).</td><td>Use per-expiry SVI or SABR for short maturities.</td></tr><tr><td>F6</td><td><span class="sev low">Low</span></td><td>SVI implementation</td><td>Very short expiries produced degenerate fits (negative total variance, extreme deltas) until optimiser starts were scaled to the slice and total variance was bounded at zero. Fixed and covered by tests.</td><td>Keep the regression tests; alert on any |delta| > 1.</td></tr><tr><td>F7</td><td><span class="sev low">Low</span></td><td>Data</td><td>Backtest uses Deribit marks, not executable quotes, with daily rebalancing and no costs; only options trading on both days are included.</td><td>Repeat with order-book snapshots when available.</td></tr></tbody></table>
+
+<h2>10. Limitations</h2>
+<p>Marks are Deribit model prices, not executable quotes. Hedging is daily with no transaction costs. Option and forward
+are measured at each instrument's last trade in the window, and only options that trade on both days are included,
+which favours liquid strikes. Results cover BTC only.</p>
+</body></html>

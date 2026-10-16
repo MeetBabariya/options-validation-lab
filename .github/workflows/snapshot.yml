@@ -21,10 +21,12 @@ jobs:
       - run: python scripts/snapshot.py ETH
       - run: python scripts/build_surface.py BTC   # snapshots BTC, refits the surface, redraws the plot
       - run: python scripts/calibrate_models.py BTC   # BS / SVI / SSVI / SABR / Heston, saves parameters
+      - run: python scripts/build_report.py BTC       # validation report (HTML + PDF via the runner's Chrome)
+      - run: python scripts/build_dashboard.py BTC    # docs/ for GitHub Pages
       - name: Commit snapshot
         run: |
           git config user.name "Meet Babariya"
           git config user.email "160588987+MeetBabariya@users.noreply.github.com"
-          git add data/snapshots reports
+          git add data/snapshots reports docs
           git diff --cached --quiet || git commit -m "Daily snapshot $(date -u +%Y-%m-%d)"
           git push

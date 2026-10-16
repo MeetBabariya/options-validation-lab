@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Options Validation Lab</title>
+<meta name="description" content="Live, independent validation of option-pricing models on Deribit BTC options: arbitrage-free surfaces, calibration and a one-year hedging backtest.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#ffffff;--ink:#0d1117;--mut:#5b6472;--line:#e3e6eb;--acc:#2f5bea;--acc2:#0f9d76;--warn:#c27c0e;--bad:#d1453b;
+  --chip:#eef1f6;--shadow:0 1px 2px rgba(16,24,40,.05),0 4px 16px rgba(16,24,40,.04);
+  --m-svi:#2f5bea;--m-ssvi:#d1453b;--m-sabr:#0f9d76;--m-heston:#e38b12;--m-bs:#8a94a6;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b0e14;--panel:#121722;--ink:#e6e9ef;--mut:#8b95a7;--line:#222a38;--acc:#6f8cff;--acc2:#3ccf9f;--warn:#f0b04a;--bad:#ff6b61;
+  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bs:#7d879a;}}
+:root[data-theme="dark"]{
+  --bg:#0b0e14;--panel:#121722;--ink:#e6e9ef;--mut:#8b95a7;--line:#222a38;--acc:#6f8cff;--acc2:#3ccf9f;--warn:#f0b04a;--bad:#ff6b61;
+  --chip:#1a2130;--shadow:none;--m-svi:#6f8cff;--m-ssvi:#ff6b61;--m-sabr:#3ccf9f;--m-heston:#f0b04a;--m-bs:#7d879a;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);font-weight:600}
+h1{font-size:clamp(26px,4vw,38px);line-height:1.1;margin:8px 0 10px;letter-spacing:-.02em}
+.lede{color:var(--mut);max-width:720px;line-height:1.55;margin:0}
+.live{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);background:var(--panel);border:1px solid var(--line);padding:6px 11px;border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--acc2);box-shadow:0 0 0 0 var(--acc2);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--acc2) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.tools{display:flex;gap:8px;align-items:center}
+button.theme{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:6px 11px;cursor:pointer;font:inherit;font-size:12.5px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:24px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi b{display:block;font-size:24px;letter-spacing:-.02em;font-family:"JetBrains Mono",monospace;font-weight:500}
+.kpi span{font-size:12px;color:var(--mut)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0;box-shadow:var(--shadow)}
+section h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
+section .sub{color:var(--mut);font-size:13.5px;margin:0 0 14px;line-height:1.5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid32{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;padding:5px 10px;font-size:12.5px;cursor:pointer;font-family:"JetBrains Mono",monospace}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;cursor:pointer;user-select:none;background:transparent;color:var(--ink);font-family:inherit}
+.lg i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.lg[aria-pressed="false"]{opacity:.38}
+.plot{width:100%;height:380px}
+.plot.sm{height:300px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;color:var(--mut);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:10px;border-bottom:1px solid var(--line)}
+td.num{font-family:"JetBrains Mono",monospace}
+.badge{display:inline-block;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px}
+.ok{background:color-mix(in srgb,var(--acc2) 16%,transparent);color:var(--acc2)}
+.cond{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)}
+.mon{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.no{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.bar{height:8px;border-radius:4px;background:var(--chip);position:relative;overflow:hidden;min-width:60px}
+.bar>i{position:absolute;left:0;top:0;bottom:0;background:var(--acc)}
+.side h3{font-size:13px;margin:0 0 8px;color:var(--mut);font-weight:500}
+.side .row{display:flex;justify-content:space-between;font-size:13.5px;padding:7px 0;border-bottom:1px dashed var(--line)}
+.side .row span:last-child{font-family:"JetBrains Mono",monospace}
+.callout{border-left:3px solid var(--acc);background:var(--chip);padding:12px 14px;border-radius:0 10px 10px 0;font-size:14px;line-height:1.55}
+.links{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;border-radius:10px;font-size:13.5px;font-weight:500}
+.btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
+footer{color:var(--mut);font-size:12.5px;margin-top:28px;line-height:1.6}
+.err{color:var(--bad);padding:30px;text-align:center}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2,.grid32{grid-template-columns:1fr}.plot{height:320px}}
+@media (max-width:480px){.wrap{padding:18px 16px 40px}section{padding:16px}.kpi b{font-size:20px}td,th{padding:7px 6px}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Options Validation Lab</div>
+      <h1>Which option model can you trust on BTC?</h1>
+      <p class="lede">An independent model validation on live Deribit data: arbitrage-free volatility surfaces, five calibrated
+      models, and a one-year test of which delta actually hedges. Refreshed every day at 08:00 UTC.</p>
+    </div>
+    <div class="tools">
+      <span class="live"><span class="dot"></span><span id="ts">loading</span></span>
+      <button class="theme" id="theme" aria-label="Toggle colour theme">◐ Theme</button>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>Smile explorer</h2>
+    <p class="sub">Market bid-ask implied volatility for each expiry against every model's fit. Pick an expiry; click a model to hide it.</p>
+    <div class="chips" id="chips" role="group" aria-label="Expiry"></div>
+    <div class="legend" id="legend"></div>
+    <div class="grid32">
+      <div id="smile" class="plot"></div>
+      <div class="side" id="side"></div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <h2>Model scorecard</h2>
+      <p class="sub">Fit to today's market and the validation decision.</p>
+      <table id="score"></table>
+    </section>
+    <section>
+      <h2>ATM volatility term structure</h2>
+      <p class="sub">At-the-money implied vol by days to expiry, from the SVI surface.</p>
+      <div id="term" class="plot sm"></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Which delta hedges best?</h2>
+    <p class="sub" id="hedgesub">One-day hedges, out of sample.</p>
+    <div class="grid2">
+      <div id="gains" class="plot sm"></div>
+      <div id="monthly" class="plot sm"></div>
+    </div>
+    <div class="callout" id="takeaway"></div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <h2>Spot-vol correlation flips sign</h2>
+      <p class="sub">Monthly correlation between BTC's daily move and the same options' IV change. This is why no fixed smile model wins.</p>
+      <div id="corr" class="plot sm"></div>
+    </section>
+    <section>
+      <h2>Heston, calibrated every day</h2>
+      <p class="sub">Mean-reversion speed kappa over a year. Values near 200 sit on the optimiser's bound: the model is straining.</p>
+      <div id="heston" class="plot sm"></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Validation report</h2>
+    <p class="sub">The full report, written like a bank's: scope, data, conceptual soundness, implementation tests, outcome analysis, stability, findings register and a decision per model. Rebuilt with every update.</p>
+    <div class="links">
+      <a class="btn primary" href="validation_report.html">Read the report</a>
+      <a class="btn" href="validation_report.pdf">PDF</a>
+      <a class="btn" href="https://github.com/MeetBabariya/options-validation-lab">Code on GitHub</a>
+      <a class="btn" href="https://meetbabariya.github.io/work/options-validation-lab/">Case study</a>
+    </div>
+  </section>
+
+  <footer>Built by <a href="https://meetbabariya.github.io">Meet Babariya</a>. Data: Deribit public API, no key. Marks are model prices, not
+  executable quotes; hedging ignores costs. Not investment advice. <span id="snap" class="mono"></span></footer>
+</div>
+
+<script>
+const MODELS=[["SVI","--m-svi"],["SSVI","--m-ssvi"],["SABR","--m-sabr"],["Heston","--m-heston"],["Black-Scholes","--m-bs"]];
+const VERDICT={"SVI":["Approved with conditions","cond"],"SSVI":["Approved with conditions","cond"],"SABR":["Approved for marking","ok"],
+  "Heston":["Not approved","no"],"Black-Scholes":["Approved as hedge","ok"]};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const hidden=new Set();let D,cur=0;
+
+function theme(){
+  const root=document.documentElement,t=root.dataset.theme;
+  const dark=t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme=dark?"light":"dark";try{localStorage.setItem("theme",root.dataset.theme)}catch(e){}
+  drawAll();
+}
+try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}
+document.getElementById("theme").onclick=theme;
+
+function layout(extra){
+  return Object.assign({paper_bgcolor:"rgba(0,0,0,0)",plot_bgcolor:"rgba(0,0,0,0)",
+    font:{family:"Inter, sans-serif",color:css("--ink"),size:12},margin:{l:52,r:14,t:10,b:44},showlegend:false,
+    xaxis:{gridcolor:css("--line"),zerolinecolor:css("--line"),linecolor:css("--line")},
+    yaxis:{gridcolor:css("--line"),zerolinecolor:css("--line"),linecolor:css("--line")},
+    hoverlabel:{font:{family:"JetBrains Mono, monospace"}}},extra);
+}
+const cfg={displayModeBar:false,responsive:true};
+const interp=(x,xs,ys)=>{if(x<=xs[0])return ys[0];for(let i=1;i<xs.length;i++){if(x<=xs[i]){const t=(x-xs[i-1])/(xs[i]-xs[i-1]);return ys[i-1]+t*(ys[i]-ys[i-1])}}return ys[ys.length-1]};
+
+function kpis(){
+  const s=Object.fromEntries(D.scores.map(x=>[x.model,x]));
+  const h=D.hedging,hi=h.models.indexOf("Heston");
+  const items=[[D.n_options,"options on Deribit now"],[D.smiles.length,"expiries, "+D.smiles[0].days+" to "+D.smiles.at(-1).days+" days"],
+    [s.SVI.median_rmse_volpts.toFixed(2),"SVI median error, vol pts"],[h.n_days,"days in the hedging test"],
+    [(h.gain[hi]>0?"+":"")+h.gain[hi]+"%","Heston hedge vs Black-Scholes"]];
+  document.getElementById("kpis").innerHTML=items.map(([b,s])=>`<div class="kpi"><b>${b}</b><span>${s}</span></div>`).join("");
+}
+
+function chips(){
+  const el=document.getElementById("chips");
+  el.innerHTML=D.smiles.map((s,i)=>`<button class="chip" aria-pressed="${i===cur}" data-i="${i}">${s.expiry.slice(5)} · ${Math.round(s.days)}d</button>`).join("");
+  el.querySelectorAll("button").forEach(b=>b.onclick=()=>{cur=+b.dataset.i;chips();smile()});
+  const lg=document.getElementById("legend");
+  lg.innerHTML=MODELS.map(([m,v])=>`<button class="lg" aria-pressed="${!hidden.has(m)}" data-m="${m}"><i style="background:${css(v)}"></i>${m}</button>`).join("");
+  lg.querySelectorAll("button").forEach(b=>b.onclick=()=>{const m=b.dataset.m;hidden.has(m)?hidden.delete(m):hidden.add(m);chips();smile()});
+}
+
+function smile(){
+  const s=D.smiles[cur];
+  const mid=s.bid.map((b,i)=>(b+s.ask[i])/2),half=s.bid.map((b,i)=>(s.ask[i]-b)/2);
+  const tr=[{x:s.k,y:mid,type:"scatter",mode:"markers",name:"market",marker:{size:5,color:css("--mut")},
+    error_y:{type:"data",array:half,visible:true,color:css("--mut"),thickness:2.5,width:0},
+    customdata:s.strike,hovertemplate:"K %{customdata}<br>mid %{y:.2f}%<extra>market</extra>"}];
+  MODELS.forEach(([m,v])=>{if(hidden.has(m))return;tr.push({x:s.grid,y:s.models[m],type:"scatter",mode:"lines",name:m,
+    line:{color:css(v),width:m==="Black-Scholes"?1.5:2.2,dash:m==="SSVI"?"dash":m==="Black-Scholes"?"dot":"solid"},
+    hovertemplate:"%{y:.2f}%<extra>"+m+"</extra>"})});
+  Plotly.react("smile",tr,layout({xaxis:{title:"log-moneyness ln(K/F)",gridcolor:css("--line"),zerolinecolor:css("--line")},
+    yaxis:{title:"implied vol (%)",gridcolor:css("--line"),zerolinecolor:css("--line")},hovermode:"closest"}),cfg);
+  const rows=MODELS.map(([m])=>{const e=s.k.map((k,i)=>interp(k,s.grid,s.models[m])-mid[i]);
+    const rmse=Math.sqrt(e.reduce((a,b)=>a+b*b,0)/e.length);
+    const inside=s.k.filter((k,i)=>{const v=interp(k,s.grid,s.models[m]);return v>=s.bid[i]&&v<=s.ask[i]}).length/s.k.length;
+    return `<div class="row"><span>${m}</span><span>${rmse.toFixed(2)} · ${Math.round(100*inside)}%</span></div>`}).join("");
+  document.getElementById("side").innerHTML=`<h3>${s.expiry} · forward ${s.F.toLocaleString()} · ${s.k.length} quotes</h3>
+    <div class="row" style="color:var(--mut);font-size:12px"><span>model</span><span>RMSE vol pts · in spread</span></div>${rows}`;
+}
+
+function score(){
+  const rows=D.scores.map(s=>{const [v,c]=VERDICT[s.model]||["",""];
+    return `<tr><td>${s.model}</td><td class="num">${s.median_rmse_volpts.toFixed(2)}</td>
+    <td class="hide-sm"><div class="bar"><i style="width:${100*s.mean_in_spread}%"></i></div></td><td class="num">${Math.round(100*s.mean_in_spread)}%</td>
+    <td><span class="badge ${c}">${v}</span></td></tr>`}).join("");
+  document.getElementById("score").innerHTML=`<thead><tr><th>Model</th><th>Error</th><th class="hide-sm"></th><th>In spread</th><th>Decision</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function term(){
+  Plotly.react("term",[{x:D.atm.map(a=>a.days),y:D.atm.map(a=>a.atm),type:"scatter",mode:"lines+markers",
+    line:{color:css("--m-svi"),width:2.2},marker:{size:6},customdata:D.atm.map(a=>a.expiry),
+    hovertemplate:"%{customdata}<br>%{y:.2f}%<extra></extra>"}],
+    layout({xaxis:{title:"days to expiry",type:"log",gridcolor:css("--line")},yaxis:{title:"ATM vol (%)",gridcolor:css("--line")}}),cfg);
+}
+
+function hedge(){
+  const h=D.hedging,cols={"Sticky moneyness (SVI)":"--m-svi","SABR Bartlett":"--m-sabr","Heston":"--m-heston","Min-variance (empirical)":"--m-bs","Adaptive spot-vol (30d)":"--m-ssvi"};
+  Plotly.react("gains",[{y:h.models,x:h.gain,type:"bar",orientation:"h",marker:{color:h.models.map(m=>css(cols[m]))},
+    error_x:{type:"data",symmetric:false,array:h.hi.map((v,i)=>v-h.gain[i]),arrayminus:h.gain.map((v,i)=>v-h.lo[i]),color:css("--ink"),thickness:1.2,width:4},
+    hovertemplate:"%{y}<br>%{x:+.1f}%<extra></extra>"}],
+    layout({margin:{l:170,r:14,t:10,b:44},xaxis:{title:"gain vs Black-Scholes (%)",gridcolor:css("--line"),zerolinecolor:css("--ink"),zerolinewidth:1.2},
+      yaxis:{autorange:"reversed",gridcolor:"rgba(0,0,0,0)"}}),cfg);
+  Plotly.react("monthly",Object.entries(h.monthly).map(([m,v])=>({x:h.months,y:v,type:"scatter",mode:"lines+markers",name:m,
+    line:{color:css(cols[m]),width:2},marker:{size:5},hovertemplate:"%{x}: %{y:+.1f}%<extra>"+m+"</extra>"})),
+    layout({yaxis:{title:"gain vs BS by month (%)",gridcolor:css("--line"),zerolinecolor:css("--ink")},xaxis:{gridcolor:css("--line")}}),cfg);
+  const best=h.models[h.gain.indexOf(Math.max(...h.gain))];
+  document.getElementById("hedgesub").textContent=`One-day hedges over ${h.n_days} out-of-sample days. Gain = reduction in squared hedging error vs the plain Black-Scholes delta, with 95% intervals; the by-month chart uses the same colours.`;
+  document.getElementById("takeaway").innerHTML=`<b>Takeaway.</b> The plain sticky-strike delta is hard to beat on BTC. Every fixed smile-dynamics
+    assumption wins in some months and loses in others, because the spot-vol correlation keeps changing sign. The best result,
+    <b>${best}</b> at <b>${h.gain[h.models.indexOf(best)]>0?"+":""}${h.gain[h.models.indexOf(best)]}%</b>, has an interval that still touches zero.`;
+  Plotly.react("corr",[{x:h.months,y:h.corr,type:"bar",marker:{color:h.corr.map(c=>c<0?css("--bad"):css("--acc2"))},
+    hovertemplate:"%{x}: %{y:+.2f}<extra></extra>"}],layout({yaxis:{title:"correlation",gridcolor:css("--line"),zerolinecolor:css("--ink")}}),cfg);
+}
+
+function hes(){
+  const y=D.heston_year;
+  Plotly.react("heston",[{x:y.day,y:y.kappa,type:"scatter",mode:"lines",line:{color:css("--m-heston"),width:1.4},hovertemplate:"%{x}<br>kappa %{y:.1f}<extra></extra>"},
+    {x:[y.day[0],y.day.at(-1)],y:[200,200],type:"scatter",mode:"lines",line:{color:css("--bad"),dash:"dash",width:1},hoverinfo:"skip"}],
+    layout({yaxis:{title:"kappa",gridcolor:css("--line")},xaxis:{gridcolor:css("--line")}}),cfg);
+}
+
+function drawAll(){if(!D)return;kpis();chips();smile();score();term();hedge();hes()}
+
+fetch("data.json").then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(d=>{
+  D=d;document.getElementById("ts").textContent="Updated "+d.ts;
+  document.getElementById("snap").textContent="Snapshot "+d.snapshot;
+  cur=Math.min(4,d.smiles.length-1);drawAll();
+}).catch(e=>{document.querySelector(".wrap").insertAdjacentHTML("beforeend",`<p class="err">Could not load data.json (${e.message}).</p>`)});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",drawAll);
+</script>
+</body>
+</html>

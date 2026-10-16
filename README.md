@@ -19,7 +19,10 @@ across 11 expiries.
   time builds up day by day.
 - [x] **Step 3: hedging backtest.** One year of BTC option-chain states is rebuilt from Deribit's free trade history,
   and six deltas are compared on 1-day hedges out of sample, following Hull & White (2017).
-- [ ] Step 4: an automatically generated model-validation report, plus a live dashboard.
+- [x] **Step 4: report and dashboard.** A model-validation report is generated from the results every day
+  ([HTML](https://meetbabariya.github.io/options-validation-lab/validation_report.html),
+  [PDF](https://meetbabariya.github.io/options-validation-lab/validation_report.pdf)), with a live dashboard at
+  **[meetbabariya.github.io/options-validation-lab](https://meetbabariya.github.io/options-validation-lab/)**.
 
 ## First results (BTC, 16 Oct 2026)
 
@@ -129,6 +132,8 @@ python scripts/calibrate_models.py BTC   # BS / SVI / SSVI / SABR / Heston on th
 python scripts/fetch_history.py BTC 2025-10-16 2026-10-15   # one year of daily trade windows (cached)
 python scripts/hedge_backtest.py BTC 2025-10-16 2026-10-15  # model deltas and 1-day pairs (8 processes)
 python scripts/analyze_hedging.py BTC                       # gains, robust views, monthly regimes, chart
+python scripts/build_report.py BTC                          # model-validation report (HTML + PDF)
+python scripts/build_dashboard.py BTC                       # docs/: the live dashboard
 pytest -q
 ```
 
