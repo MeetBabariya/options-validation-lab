@@ -38,3 +38,19 @@ def implied_vol(p, F, K, T, is_call, lo=1e-4, hi=10.0, iters=100):
         b = np.where(too_high, m, b)
         a = np.where(too_high, a, m)
     return np.where(ok, 0.5 * (a + b), np.nan)
+
+
+def implied_forward(price_coin, K, T, vol, is_call, S, iters=80):
+    """Deribit quotes option prices in coin: price_usd = price_coin * F, with F the forward used in its IV. Given
+    a trade's coin price and Deribit's IV, F is the only unknown. price_coin(F) is increasing in F for calls and
+    decreasing for puts, so bisection on [0.7 S, 1.4 S] (S = index) finds the unique root. NaN if no root."""
+    price_coin, K, T, vol, is_call, S = np.broadcast_arrays(*map(np.asarray, (price_coin, K, T, vol, is_call, S)))
+    lo, hi = 0.7 * S.astype(float), 1.4 * S.astype(float)
+    sign = np.where(is_call, 1.0, -1.0)
+    f = lambda F: sign * (price(F, K, T, vol, is_call) / F - price_coin)
+    ok = (f(lo) < 0) & (f(hi) > 0)
+    for _ in range(iters):
+        m = 0.5 * (lo + hi)
+        up = f(m) < 0
+        lo, hi = np.where(up, m, lo), np.where(up, hi, m)
+    return np.where(ok, 0.5 * (lo + hi), np.nan)

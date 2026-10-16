@@ -69,9 +69,12 @@ def fit_svi_slice(k, w, weights, T, penalty=1e3):
     def outer(x):
         return inner(x[0], max(np.exp(x[1]), sig_min))[1]
 
+    # Starting points scaled to this slice: a 2-day smile spans k = +-0.07, a 1-year one +-0.8. Fixed starts sized
+    # for long expiries let Nelder-Mead wander to m, sig far outside the quotes, where the smile is flat.
+    span = max(np.abs(k).max(), 1e-3)
     best = None
-    for m0 in (-0.3, 0.0, 0.3):
-        for s0 in (0.05, 0.2, 0.5):
+    for m0 in (-0.5 * span, 0.0, 0.5 * span):
+        for s0 in (max(0.25 * span, sig_min), max(0.75 * span, sig_min), max(2.0 * span, sig_min)):
             r = minimize(outer, (m0, np.log(s0)), method="Nelder-Mead", options={"xatol": 1e-5, "fatol": 1e-12})
             if best is None or r.fun < best.fun:
                 best = r
@@ -89,7 +92,9 @@ def fit_svi_slice(k, w, weights, T, penalty=1e3):
 
     ww, w1, w2 = svi_derivs(K_GRID, *x)
     if durrleman_g(np.maximum(ww, 1e-12), w1, w2, K_GRID).min() < 0:
-        bounds = [(-1, 2), (1e-8, 5), (-0.999, 0.999), (-1.5, 1.5), (sig_min, 3)]
+        # a >= 0 (as in the inner solve) keeps total variance non-negative everywhere, since
+        # b (rho (k - m) + sqrt((k - m)^2 + sig^2)) >= 0 for |rho| <= 1
+        bounds = [(0, 2), (1e-8, 5), (-0.999, 0.999), (-1.5, 1.5), (sig_min, 3)]
         x = minimize(loss, x, bounds=bounds, method="L-BFGS-B").x
     return x
 
