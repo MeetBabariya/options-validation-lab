@@ -46,5 +46,6 @@ python scripts/build_surface.py BTC   # snapshot, fit, arbitrage checks, reports
 pytest -q
 ```
 
-Each run saves a gzipped snapshot in `data/snapshots/`. Collected daily, these build the history used for the
-hedging backtest.
+Each run saves a gzipped snapshot in `data/snapshots/`. A GitHub Actions job (`.github/workflows/snapshot.yml`)
+saves BTC and ETH snapshots every day at 08:00 UTC and refits the surface. This builds the history for the hedging
+backtest.
